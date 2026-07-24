@@ -19,6 +19,10 @@ set -euo pipefail
 : "${SERVER_CFG:=server.cfg}"
 : "${MOD_ID:=}"
 : "${USE_XVFB:=0}"
+# Read-only mount of a full BO3 zone/ folder (from a real game install). Its
+# .ff/.fd map files are symlinked into the server zone to unlock every map,
+# without copying (the huge .xpak assets are not needed for a headless server).
+: "${FULLGAME_ZONE_DIR:=/fullgame_zone}"
 
 # STEAM_USER defaults to "anonymous": app 545990 (the BO3 dedicated server) is
 # downloadable anonymously, with no account and no game ownership. Only set a
@@ -133,6 +137,57 @@ render_configs() {
     done
 }
 
+# --- Merge extra maps from a full game zone (symlinks, no copy) --------------
+merge_maps() {
+    if [ ! -d "$FULLGAME_ZONE_DIR" ]; then
+        return 0
+    fi
+    local f base added=0
+    for f in "$FULLGAME_ZONE_DIR"/*.ff "$FULLGAME_ZONE_DIR"/*.fd; do
+        [ -e "$f" ] || continue
+        base="$(basename "$f")"
+        # Only add maps that are missing; never override the dedicated files.
+        if [ ! -e "$RUN_DIR/zone/$base" ]; then
+            ln -s "$f" "$RUN_DIR/zone/$base" && added=$((added + 1))
+        fi
+    done
+    if [ "$added" -gt 0 ]; then
+        log "Merged $added extra map file(s) from the full game zone."
+    else
+        log "Full game zone mounted, no new map files to add."
+    fi
+}
+
+# --- Stage GSC scripts for the active mode only (no cross-mode crashes) ------
+# Zombies-only scripts #include zm-only engine modules, resolved at load time
+# (not conditionally). Leaving them in custom_scripts/ while running mp/cp
+# aborts the whole script load -> the game process exits -> restart loop.
+# So only the active mode's scripts (plus all/) ever get copied in.
+stage_custom_scripts() {
+    local dest="$RUN_DIR/t7x/custom_scripts"
+    local lib="$RUN_DIR/t7x/scripts_library"
+    local mode
+    case "$SERVER_CFG" in
+        *_zm.cfg) mode=zm ;;
+        *_cp.cfg) mode=cp ;;
+        *)        mode=mp ;;
+    esac
+
+    mkdir -p "$dest"
+    rm -f "$dest"/*.gsc 2>/dev/null || true
+
+    local src d count=0
+    for d in all "$mode"; do
+        src="$lib/$d"
+        [ -d "$src" ] || continue
+        for f in "$src"/*.gsc; do
+            [ -e "$f" ] || continue
+            cp "$f" "$dest/" && count=$((count + 1))
+        done
+    done
+    log "Staged $count custom script(s) for mode '$mode'."
+}
+
 # --- Server startup ----------------------------------------------------------
 run_server() {
     if [ ! -f "$RUN_DIR/$DEDICATED_EXE" ]; then
@@ -149,6 +204,8 @@ run_server() {
     fetch_client_exe
     setup_wineprefix
     render_configs
+    merge_maps
+    stage_custom_scripts
 
     # Wine complains when XDG_RUNTIME_DIR is unset (warning, sometimes fatal).
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-bo3}"
@@ -172,7 +229,7 @@ run_server() {
     tail -n +1 -F "$console_log" 2>/dev/null &
     local tail_pid=$!
 
-    wine "$CLIENT.exe" -headless \
+    wine "$CLIENT.exe" -dedicated \
         +set fs_game "$MOD_ID" \
         +set net_port "$GAME_PORT" \
         +set logfile 2 \

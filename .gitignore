@@ -8,3 +8,7 @@
 boiii.exe
 t7x.exe
 boiii-server-files.zip
+
+# Generated at runtime by the entrypoint (staged from t7x/scripts_library/
+# based on the active mode) — not something to version.
+t7x/custom_scripts/

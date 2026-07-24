@@ -19,6 +19,15 @@ services:
       - serverdata:/data
       # Your config templates, editable from the host
       - ./config:/config
+      # Optional: a full BO3 zone/ folder (read-only) to unlock every map.
+      # Set FULLGAME_ZONE in .env. Harmless default (./config) has no .ff files.
+      - ${FULLGAME_ZONE:-./config}:/fullgame_zone:ro
+      # t7x overrides: lobby scripts (set up the MP session so loadouts work),
+      # gamesettings, and the GSC script library. Loaded by t7x from
+      # UnrankedServer/t7x/. One bind mount so the tree stays writable (the
+      # entrypoint stages custom_scripts/ inside it — see stage_custom_scripts
+      # in entrypoint.sh, and t7x/scripts_library/README.md for why).
+      - ./t7x:/data/serverfiles/UnrankedServer/t7x
 
     # No TTY: the client draws an ANSI console that makes `docker logs`
     # unreadable. Without a TTY the output stays plain text.
