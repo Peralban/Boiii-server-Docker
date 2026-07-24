@@ -1,0 +1,10 @@
+# Local configuration and secrets
+.env
+
+# Persisted data: server files (several GB) + Wine prefix
+/data/
+
+# Custom clients downloaded at runtime
+boiii.exe
+t7x.exe
+boiii-server-files.zip
