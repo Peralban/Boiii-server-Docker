@@ -1,0 +1,36 @@
+services:
+  bo3:
+    build: .
+    image: bo3-server
+    container_name: bo3-boiii
+    # Wine can crash -> restart automatically, unless YOU stopped it on purpose.
+    restart: unless-stopped
+
+    # Variables read from .env (secrets, port, client, config file...)
+    env_file:
+      - .env
+
+    ports:
+      - "${GAME_PORT:-27017}:${GAME_PORT:-27017}/udp"
+      - "${GAME_PORT:-27017}:${GAME_PORT:-27017}/tcp"
+
+    volumes:
+      # Server files + Wine prefix: persistent Docker volume (no re-download)
+      - serverdata:/data
+      # Your config templates, editable from the host
+      - ./config:/config
+
+    # No TTY: the client draws an ANSI console that makes `docker logs`
+    # unreadable. Without a TTY the output stays plain text.
+    tty: false
+
+    # The container is intentionally unlimited: it uses whatever the Docker VM
+    # provides. Uncomment to cap it (useful when running several servers).
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "4.0"
+    #       memory: 4G
+
+volumes:
+  serverdata:
