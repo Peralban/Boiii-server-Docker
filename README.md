@@ -57,7 +57,7 @@ docker compose restart bo3
 The container streams the game's own console log to stdout, so `docker logs` shows
 real server output without digging through Wine files.
 
-## RCON terminal (administration)
+## RCON CLI (administration)
 
 Control the running server (change map, kick, broadcast messages...):
 
@@ -65,18 +65,59 @@ Control the running server (change map, kick, broadcast messages...):
 docker compose exec bo3 rcon
 ```
 
-Or run a single command:
+A real interactive CLI: **command history** (↑/↓ arrows, persisted across
+restarts), **tab-completion**, and colored output. On top of any raw RCON
+command (`status`, `serverinfo`, `map_rotate`, `map mp_havoc`, `say <message>`,
+`g_gametype dom`, ...), it adds:
+
+| Command | Effect |
+|---|---|
+| `players` (or `ls`) | Clean player table (color codes stripped) |
+| `kick <#\|name>` | Kick by number or partial name, from the last `players` list |
+| `watch <command>` | Re-run a command every 2s until Ctrl-C (e.g. `watch players`) |
+| `reset` | Reset all `zm_tweaks` dvars (see below) to a normal game, in one shot |
+| `help` | **Adaptive**: shows bot commands in multiplayer, `zm_tweaks` dvars in zombies |
+| `help maps` (or `help map`) | Full codename ↔ real name table for the active mode's maps |
+
+Or run any single command without entering the interactive shell:
 
 ```bash
-docker compose exec bo3 rcon status
+docker compose exec bo3 rcon players
+docker compose exec bo3 rcon watch players
 ```
 
-Useful commands: `status`, `serverinfo`, `map_rotate`, `map mp_havoc`,
-`say <message>`, `kick <player>`, `g_gametype dom`.
-
 > **IW4MAdmin does not officially support BO3 (T7).** Only an experimental,
-> partially working plugin exists for BOIII. The RCON terminal above is the
+> partially working plugin exists for BOIII. The RCON CLI above is the
 > reliable option.
+
+### Raw RCON command reference
+
+Any of these work as-is, either typed in the interactive CLI or as
+`docker compose exec bo3 rcon <command>`:
+
+| Category | Command | Effect |
+|---|---|---|
+| Info | `status` | Connected players (number, ping, name, address) |
+| Info | `serverinfo` | All current server settings |
+| Info | `dumpuser <name>` | Details about one player |
+| Maps | `map <name>` | Load a specific map (same mode only — MP↔ZM needs `switch.sh`/`.ps1`) |
+| Maps | `map_rotate` | Advance to the next map in the rotation |
+| Maps | `fast_restart` | Restart the current round on the same map |
+| Maps | `g_gametype <mode>` | Change gametype (applies on next map load) |
+| Players | `kick <name>` | Kick a player by name |
+| Players | `clientkick <#>` | Kick a player by number (from `status`) |
+| Players | `kick all` | Kick everyone |
+| Players | `banclient <#>` | Permanently ban |
+| Players | `tempbanclient <#>` | Temporary ban |
+| Players | `unbanuser <name>` | Remove a ban |
+| Chat | `say <message>` | Broadcast to everyone |
+| Chat | `tell <#> <message>` | Whisper to one player |
+| Live settings | `set sv_hostname "name"` | Rename the server |
+| Live settings | `set g_password "pass"` | Set/clear the join password |
+| Live settings | `set scr_<mode>_scorelimit <n>` | Score limit (e.g. `scr_tdm_scorelimit`) |
+| Live settings | `set scr_<mode>_timelimit <n>` | Round duration in minutes |
+| Fun | `set g_speed <n>` | Player movement speed (default `190`) |
+| Fun | `set jump_height <n>` | Jump height |
 
 ## Configuration
 
