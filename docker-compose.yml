@@ -41,5 +41,17 @@ services:
     #       cpus: "4.0"
     #       memory: 4G
 
+  # Hides your real IP behind a playit.gg tunnel instead of port-forwarding.
+  # Starts automatically with `docker compose up -d` / start.ps1|sh. See
+  # README "Hiding your IP" section for the one-time account setup this needs.
+  playit:
+    image: ghcr.io/playit-cloud/playit-agent:latest
+    container_name: bo3-playit
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: "${PLAYIT_SECRET_KEY}"
+    depends_on:
+      - bo3
+
 volumes:
   serverdata:

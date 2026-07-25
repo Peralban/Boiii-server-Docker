@@ -158,10 +158,34 @@ processors=16
 Then run `wsl --shutdown` and restart Docker Desktop. Optional per-container limits
 are documented (commented out) in `docker-compose.yml`.
 
+## Hiding your IP (playit.gg tunnel)
+
+BO3 talks UDP, so a normal reverse proxy (nginx, Traefik...) can't front it — a
+UDP tunnel can. [playit.gg](https://playit.gg) is free and gives players an
+address to connect to instead of your real IP, with no router port-forward.
+
+1. Create a free account at [playit.gg](https://playit.gg/account) and add a
+   **Docker**-type agent (not Windows — no installer needed, just a key).
+   It gives you a `SECRET_KEY`.
+2. Put it in `.env`: `PLAYIT_SECRET_KEY=<the key>`.
+3. `docker compose up -d` — the `playit` service starts automatically
+   alongside `bo3` (no separate step needed).
+4. In the playit.gg dashboard, create a **UDP** tunnel:
+   - Local address: `bo3:28960` (the compose service name + your `GAME_PORT`;
+     they share a Docker network, so this resolves without any host config).
+     Don't use the `network_mode: host` snippet playit.gg's own wizard
+     suggests — on Docker Desktop for Windows that breaks UDP entirely.
+   - It gives you a public address like `xyz.joinmc.link:12345` — give that to
+     your friends instead of your IP.
+
+Expect slightly higher ping than a direct connection (one extra relay hop) —
+that's the trade-off for not exposing your IP or touching your router.
+
 ## Notes
 
 - **Port**: `27017` UDP+TCP by default. Forward it on your router to play over the
-  internet, or use a VPN mesh (Tailscale/ZeroTier) to avoid exposing your IP.
+  internet, or use the playit.gg tunnel above / a VPN mesh (Tailscale/ZeroTier)
+  to avoid exposing your IP.
 - **Missing maps**: some maps (for example Zombies Chronicles, `zm_tomb`) are not part
   of the dedicated server download. Their `.ff`/`.fd` files must be copied in from a
   full game installation. Only `.ff`/`.fd` are needed — a dedicated server renders
