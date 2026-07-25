@@ -1,6 +1,9 @@
 # Local configuration and secrets
 .env
 
+# Written by the RCON CLI's `switch` command, read by start.ps1/start.sh
+config/.switch_request
+
 # Persisted data: server files (several GB) + Wine prefix
 /data/
 
@@ -12,3 +15,8 @@ boiii-server-files.zip
 # Generated at runtime by the entrypoint (staged from t7x/scripts_library/
 # based on the active mode) — not something to version.
 t7x/custom_scripts/
+
+# Generated at runtime by the entrypoint (base + the active preset's
+# overrides, merged) — not something to version. Edit t7x/gamesettings_base/
+# or t7x/gamesettings_overrides/<preset>/ instead.
+t7x/gamesettings/

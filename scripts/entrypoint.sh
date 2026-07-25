@@ -53,6 +53,16 @@ DEDICATED_EXE="BlackOps3_UnrankedDedicatedServer.exe"
 
 log() { echo "[entrypoint] $*"; }
 
+# Derive a preset key from SERVER_CFG: "server.cfg" -> "classic",
+# "server_zm.cfg" -> "zm", "server_snipe1v1.cfg" -> "snipe1v1", etc.
+preset_name() {
+    case "$SERVER_CFG" in
+        server.cfg)   echo "classic" ;;
+        server_*.cfg) local p="${SERVER_CFG#server_}"; echo "${p%.cfg}" ;;
+        *)            echo "classic" ;;
+    esac
+}
+
 # --- Server files download (SteamCMD) ----------------------------------------
 download_serverfiles() {
     log "Downloading BO3 server files (app $APP_ID) through SteamCMD."
@@ -125,15 +135,17 @@ render_configs() {
     fi
     mkdir -p "$RUN_DIR/zone"
     local f dest
-    for f in server.cfg server_zm.cfg server_cp.cfg; do
-        [ -f "$CONFIG_DIR/$f" ] || continue
-        dest="$RUN_DIR/zone/$f"
+    # Render every .cfg in config/, not a fixed list: any preset dropped in
+    # there (server_<name>.cfg) just works, no entrypoint change needed.
+    for f in "$CONFIG_DIR"/*.cfg; do
+        [ -e "$f" ] || continue
+        dest="$RUN_DIR/zone/$(basename "$f")"
         # Remove any existing file/symlink first: an old symlink here would
         # point back at the source template, and `>` would truncate it (i.e.
         # destroy the source) before envsubst could read it.
         rm -f "$dest"
         envsubst '${SERVER_NAME} ${SERVER_DESCRIPTION} ${SERVER_PASSWORD} ${RCON_PASSWORD} ${MAX_PLAYERS}' \
-            < "$CONFIG_DIR/$f" > "$dest"
+            < "$f" > "$dest"
     done
 }
 
@@ -155,6 +167,34 @@ merge_maps() {
         log "Merged $added extra map file(s) from the full game zone."
     else
         log "Full game zone mounted, no new map files to add."
+    fi
+}
+
+# --- Stage gamesettings overrides for the active preset ----------------------
+# The engine auto-reloads gamesettings_<gametype>.cfg itself when a match
+# starts, regardless of what a server.cfg manually execs — so preset-specific
+# rule changes (weapon restrictions, forceRadar, timelimit...) must replace
+# the actual file the engine reads, not just be exec'd once at boot. This
+# rebuilds t7x/gamesettings/ fresh every start: base files first, then the
+# active preset's overrides (t7x/gamesettings_overrides/<preset>/) on top, so
+# two presets sharing a gametype (e.g. two "dm" presets) never leak settings
+# into each other.
+stage_gamesettings() {
+    local base="$RUN_DIR/t7x/gamesettings_base"
+    local preset
+    preset="$(preset_name)"
+    local overrides="$RUN_DIR/t7x/gamesettings_overrides/$preset"
+    local dest="$RUN_DIR/t7x/gamesettings"
+
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    cp -r "$base"/. "$dest"/
+
+    if [ -d "$overrides" ]; then
+        cp -r "$overrides"/. "$dest"/
+        log "Applied gamesettings overrides for preset '$preset'."
+    else
+        log "No gamesettings overrides for preset '$preset' (using base rules)."
     fi
 }
 
@@ -205,6 +245,7 @@ run_server() {
     setup_wineprefix
     render_configs
     merge_maps
+    stage_gamesettings
     stage_custom_scripts
 
     # Wine complains when XDG_RUNTIME_DIR is unset (warning, sometimes fatal).
