@@ -9,12 +9,25 @@ Usage:
     rcon kick <num|name>    -> kick a player from the last-seen player list
     rcon watch <cmd...>     -> re-run a command every 2s until Ctrl-C
     rcon reset              -> reset all zm_tweaks dvars to a normal game
+    rcon switch <preset>    -> request a mode/preset switch (see below)
+
+Requesting `switch <preset>` writes the preset name to a file the host-side
+start script watches for; it then restarts the server with that preset and
+re-opens this CLI. Requires running through start.ps1/start.sh, not a plain
+`docker compose exec bo3 rcon`.
 
 The password is resolved in this order:
   1. the RCON_PASSWORD environment variable
   2. the `set rcon_password "..."` line of the rendered server config
 """
 import os
+
+# Without TERM set, readline can't look up escape sequences for arrow keys
+# (up/down history, left/right cursor movement) and prints them raw instead
+# of acting on them. `docker exec` sessions don't always inherit TERM from
+# the host shell, so default it before readline is used.
+os.environ.setdefault("TERM", "xterm")
+
 import re
 import readline
 import socket
@@ -25,16 +38,31 @@ HOST = os.environ.get("RCON_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GAME_PORT", "27017"))
 TIMEOUT = float(os.environ.get("RCON_TIMEOUT", "1.5"))
 HISTORY_FILE = os.environ.get("RCON_HISTORY_FILE", "/data/.rcon_history")
+CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
+SWITCH_REQUEST_FILE = os.path.join(CONFIG_DIR, ".switch_request")
 
 PREFIX = b"\xff\xff\xff\xff"
 USE_COLOR = sys.stdout.isatty()
 
 KNOWN_COMMANDS = [
     "status", "serverinfo", "players", "kick", "watch", "help", "exit", "reset",
-    "map", "map_rotate", "fast_restart", "say", "tell",
+    "switch", "map", "map_rotate", "fast_restart", "say", "tell",
     "banclient", "tempbanclient", "unbanuser", "clientkick",
     "g_gametype", "set", "rcon_password", "sv_hostname",
 ]
+
+# Dvars commonly changed at runtime, offered for tab-completion after `set `.
+KNOWN_DVARS = [
+    "bot_maxallies", "bot_maxAxis", "bot_maxFree", "bot_difficulty",
+    "sv_hostname", "g_password", "rcon_password", "g_gametype",
+    "sv_maxclients", "scr_teambalance", "cg_thirdPerson",
+    "zm_money_multiplier", "zm_starting_money", "zm_no_perk_limit",
+    "zm_perk_drop_chance", "zm_godmode", "zm_infinite_ammo",
+]
+
+# Presets offered for tab-completion after `switch `. Keep in sync with the
+# config/server_<name>.cfg files switch.sh/switch.ps1 know about.
+KNOWN_PRESETS = ["mp", "zm", "cp", "snipe1v1", "7v7bots"]
 
 # Defaults for the zm_tweaks.gsc dvars (see t7x/scripts_library/zm/) — a
 # completely normal game. `rcon reset` restores all of them in one shot.
@@ -54,6 +82,9 @@ Shortcuts:
   players (or ls)          clean player table
   kick <#|name>             kick from the last-seen player list
   watch <command>           re-run a command every 2s until Ctrl-C
+  switch <preset>           mp | zm | cp | snipe1v1 | 7v7bots — restarts the
+                            server with that preset, reopens this CLI
+                            (only works when launched via start.ps1/start.sh)
   help                      this message (adapts to the active mode)
 
 Any other input is sent as a raw RCON command, e.g.:
@@ -252,7 +283,14 @@ def setup_readline():
     readline.set_history_length(500)
 
     def completer(text, state):
-        matches = [c for c in KNOWN_COMMANDS if c.startswith(text)]
+        buf = readline.get_line_buffer().lower()
+        if buf.startswith("set "):
+            candidates = KNOWN_DVARS
+        elif buf.startswith("switch "):
+            candidates = KNOWN_PRESETS
+        else:
+            candidates = KNOWN_COMMANDS
+        matches = [c for c in candidates if c.startswith(text)]
         return matches[state] if state < len(matches) else None
 
     readline.set_completer(completer)
@@ -275,13 +313,17 @@ def print_reply(reply):
 
 
 def dispatch(sock, password, line, last_players):
-    """Handle one command line (used by both interactive and single-shot modes)."""
+    """Handle one command line (used by both interactive and single-shot modes).
+
+    Returns "exit" when the interactive loop should terminate (e.g. after a
+    switch request), None otherwise.
+    """
     parts = line.split()
     cmd = parts[0].lower() if parts else ""
 
     if cmd == "players" or cmd == "ls":
         last_players[:] = do_players(sock, password)
-        return
+        return None
 
     if cmd == "kick" and len(parts) > 1:
         target = parts[1]
@@ -312,6 +354,21 @@ def dispatch(sock, password, line, last_players):
         except KeyboardInterrupt:
             print()
         return
+
+    if cmd == "switch" and len(parts) > 1:
+        preset = parts[1]
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(SWITCH_REQUEST_FILE, "w", encoding="utf-8") as fh:
+                fh.write(preset + "\n")
+        except OSError as exc:
+            print(color(f"Could not write switch request: {exc}", "31"))
+            return None
+        print(color(
+            f"Switch to '{preset}' requested — exiting so the host can "
+            "restart the server and reopen this CLI...", "36"
+        ))
+        return "exit"
 
     if cmd == "reset":
         for dvar, default in ZM_TWEAK_DEFAULTS.items():
@@ -364,7 +421,8 @@ def main():
                 continue
             if line == "exit":
                 break
-            dispatch(sock, password, line, last_players)
+            if dispatch(sock, password, line, last_players) == "exit":
+                break
     finally:
         save_history()
 
